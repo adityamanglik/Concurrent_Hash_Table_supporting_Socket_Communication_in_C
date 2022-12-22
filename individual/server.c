@@ -1,21 +1,33 @@
+#define _GNU_SOURCE
 #include <netinet/in.h>  //structure for storing address information
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
 #include <sys/socket.h>  //for socket APIs
+// Headers for GNU Hash table
+#include <assert.h>
+#include <errno.h>
+#include <search.h>
 
 // TODO: Set 5555 as port number
 #define PORT_NUMBER 5556
 // TODO: Find out how to read long messages without stack overflow
 #define STRING_LENGTH_LIMIT 32 * 1024
-// HASH TABLE IMPLEMENTATION /////////////////////////////////////////////
-
-// HASH TABLE IMPLEMENTATION /////////////////////////////////////////////
+#define HASHTABLE_SIZE 100
 
 char* executeOperation(char* message, int operation) { return "ERR"; }
 
 int main(int argc, char const* argv[]) {
+  // create and initialize hash table
+  struct hsearch_data* htab;
+  /*dynamically allocate memory for a single table.*/
+  htab = (struct hsearch_data*)calloc(1, sizeof(struct hsearch_data));
+  /*zeroize the table.*/  // Not needed because calloc
+  // memset(htab, 0, sizeof(struct hsearch_data));
+  /*create 30 table entries.*/
+  assert(hcreate_r(HASHTABLE_SIZE, htab) != 0);
+
   // string store data to send to client
   char sendBuffer[STRING_LENGTH_LIMIT] = "Single-thread Server: ";
   char recvBuffer[STRING_LENGTH_LIMIT] = {0};
@@ -96,6 +108,8 @@ int main(int argc, char const* argv[]) {
       // GET found = read length of key
       if (operation == 1) {
         printf("GET operation\n");
+        // variables for hash table ops
+        ENTRY e, *ep;
         // increment location until length number
         location += 4;
         keyLength = atoi(recvBuffer + location);
@@ -125,6 +139,16 @@ int main(int argc, char const* argv[]) {
         printf("Location: %d\n", location);
 
         // execute READ operation on DB and print value or ERR
+        e.key = keyBuffer;
+        int retVal = hsearch_r(e, FIND, &ep, htab);
+        printf("RetVal: %d", retVal);
+        if (retVal == 0) {
+          printf("Value of errno: %d\n ", errno);
+          printf("The error message is : %s\n", strerror(errno));
+          perror("Message from perror");
+          return;
+        }
+
         // char* sendBuffer = executeOperation(keyBuffer, operation);
 
         // send message to client socket based on executed operation
@@ -138,6 +162,8 @@ int main(int argc, char const* argv[]) {
 
       if (operation == 2) {
         printf("SET operation\n");
+        // variables for hash table ops
+        ENTRY e, *ep;
         // increment location until length number
         location += 4;
         keyLength = atoi(recvBuffer + location);
@@ -195,6 +221,16 @@ int main(int argc, char const* argv[]) {
         printf("Location: %d\n", location);
 
         // get lock on table, execute WRITE operation
+        e.key = keyBuffer;
+        e.data = valueBuffer;
+        int retVal = hsearch_r(e, ENTER, &ep, htab);
+        printf("RetVal: %d", retVal);
+        if (retVal == 0) {
+          printf("Value of errno: %d\n ", errno);
+          printf("The error message is : %s\n", strerror(errno));
+          perror("Message from perror");
+          return;
+        }
         // char* sendBuffer = executeOperation(keyBuffer, operation);
 
         // send message to client socket based on executed operation
@@ -207,8 +243,11 @@ int main(int argc, char const* argv[]) {
       }  // SET operation ends
     }
   }
-  // After chatting close the socket
+  // Close the socket
   close(servSockD);
+  // Destroy the hash table free heap memory
+  hdestroy_r(htab);
+  free(htab);
   return 0;
 }
 
@@ -227,8 +266,3 @@ threads
 1.7 Edge Case: client terminating the connection before finishing a request.
 1.8. Misbehaving client should be terminated --> close connection
 */
-
-struct bytestring {
-  size_t len;
-  unsigned char* bytes;
-};
