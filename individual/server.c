@@ -141,16 +141,25 @@ int main(int argc, char const* argv[]) {
         // execute READ operation on DB and print value or ERR
         e.key = keyBuffer;
         int retVal = hsearch_r(e, FIND, &ep, htab);
-        printf("RetVal: %d", retVal);
-        if (retVal == 0) {
+        printf("GET RetVal: %d\n", retVal);
+        if (retVal == 0) {  // key does not exist
           printf("Value of errno: %d\n ", errno);
           printf("The error message is : %s\n", strerror(errno));
           perror("Message from perror");
-          return;
+          sendBuffer[0] = 'E';
+          sendBuffer[1] = 'R';
+          sendBuffer[2] = 'R';
+          sendBuffer[3] = '\0';
+        } else {  // key exists
+          char* readValue = (char*)(ep->data);
+          printf("Read value from htab: %s\n", readValue);
+          // TODO: copy data to sendBuffer
+          sendBuffer[0] = 'E';
+          sendBuffer[1] = 'R';
+          sendBuffer[2] = 'R';
+          sendBuffer[3] = '\0';
         }
-
-        // char* sendBuffer = executeOperation(keyBuffer, operation);
-
+        printf("Sending message to client: %s\n", sendBuffer);
         // send message to client socket based on executed operation
         send(clientSocket, sendBuffer, sizeof(sendBuffer), 0);
 
@@ -224,15 +233,13 @@ int main(int argc, char const* argv[]) {
         e.key = keyBuffer;
         e.data = valueBuffer;
         int retVal = hsearch_r(e, ENTER, &ep, htab);
-        printf("RetVal: %d", retVal);
-        if (retVal == 0) {
+        printf("SET RetVal: %d\n", retVal);
+        if (retVal == 0) {  // error inserting KEY == OOM
           printf("Value of errno: %d\n ", errno);
           printf("The error message is : %s\n", strerror(errno));
           perror("Message from perror");
-          return;
         }
-        // char* sendBuffer = executeOperation(keyBuffer, operation);
-
+        printf("Sending message to client: %s\n", sendBuffer);
         // send message to client socket based on executed operation
         send(clientSocket, sendBuffer, sizeof(sendBuffer), 0);
 
@@ -256,7 +263,8 @@ TODO:
 0. Support multiple messages with same client --> DONE
 0.4 Binary safe strings: Length matters, not the \0 character
 0.5 Implement internal database to SET (add or replace) and GET (in parallel)
-keys 0.6 Edge case: sending weird characters = sanitize input 0.7 Edge case:
+keys  --> ALMOST
+0.6 Edge case: sending weird characters = sanitize input 0.7 Edge case:
 Sending commands other than SET GET 0.8 Edge case: Sending extremely long
 strings for key (longer than 32 Mb) 0.9 Edge case: Sending extremely long string
 for key AND value (longer than 32 Mb) 0.91 Edge case: Terminate connection when
