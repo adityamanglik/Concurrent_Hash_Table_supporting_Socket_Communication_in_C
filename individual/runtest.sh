@@ -19,7 +19,7 @@ for cur_test_name in "basic" "longkey" "longvalue" "crazystring"; do
 
     # Note: Depending on your version of netcat, you might have to adapt the timeout parameter so netcat
     # terminates the connection after sending the input.
-    nc -w 1 localhost 5556 < $TEST_IN | diff - $TEST_OUT
+    nc -w 1 localhost 5555 < $TEST_IN | diff - $TEST_OUT
 
     if (($? == 0)); then
         echo "Test successful!"

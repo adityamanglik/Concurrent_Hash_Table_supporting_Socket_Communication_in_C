@@ -11,7 +11,7 @@
 #include <search.h>
 
 // TODO: Set 5555 as port number
-#define PORT_NUMBER 5556
+#define PORT_NUMBER 5555
 // TODO: Find out how to read long messages without stack overflow
 #define STRING_LENGTH_LIMIT 32 * 1024
 #define HASHTABLE_SIZE 100
@@ -100,7 +100,7 @@ int main(int argc, char const* argv[]) {
 
     // print buffer which contains the client contents
     printf("From client: %s", recvBuffer);
-    printf("Message length: %d\n", msgLength);
+    printf("Message length: %ld\n", msgLength);
     if (msgLength == 0) {
       printf("No more messages to read, exiting.\n");
       break;
@@ -141,7 +141,7 @@ int main(int argc, char const* argv[]) {
         location += 4;
         keyLength = atoi(recvBuffer + location);
         ++location;  // increment beyond current $ to enable next dollar search
-        printf("Length of key: %d\n", keyLength);
+        printf("Length of key: %ld\n", keyLength);
 
         // create and initialize buffer of read size
         char keyBuffer[keyLength + 1];
@@ -173,6 +173,7 @@ int main(int argc, char const* argv[]) {
           printf("Value of errno: %d\n ", errno);
           printf("The error message is : %s\n", strerror(errno));
           perror("Message from perror");
+          memset(sendBuffer, 0, STRING_LENGTH_LIMIT);
           sendBuffer[0] = 'E';
           sendBuffer[1] = 'R';
           sendBuffer[2] = 'R';
@@ -181,6 +182,7 @@ int main(int argc, char const* argv[]) {
           struct BSstring* readValue = (struct BSstring*)(ep->data);
           printf("Read value from htab: %s\n", readValue->string);
           // Copy data to sendBuffer
+          memset(sendBuffer, 0, STRING_LENGTH_LIMIT);
           int i = 0;
           sendBuffer[i++] = 'V';
           sendBuffer[i++] = 'A';
@@ -216,12 +218,14 @@ int main(int argc, char const* argv[]) {
         // increment location until length number
         location += 4;
         keyLength = atoi(recvBuffer + location);
-        printf("Length of key: %d\n", keyLength);
+        printf("Length of key: %ld\n", keyLength);
         // Edge case: If key length > 4 Mb terminate connection
         if (keyLength < 1 || keyLength > STRING_LENGTH_LIMIT) {
-          sendBuffer[0] = 'O';
-          sendBuffer[1] = 'K';
-          sendBuffer[2] = '\n';
+          memset(sendBuffer, 0, STRING_LENGTH_LIMIT);
+          sendBuffer[0] = 'E';
+          sendBuffer[1] = 'R';
+          sendBuffer[2] = 'R';
+          sendBuffer[3] = '\n';
           printf("Sending message to client: %s\n", sendBuffer);
           // send message to client socket based on executed operation
           send(clientSocket, sendBuffer, sizeof(sendBuffer), 0);
@@ -256,7 +260,7 @@ int main(int argc, char const* argv[]) {
         ++location;  // increment beyond current $ to read value
         valueLength = atoi(recvBuffer + location);
         ++location;  // increment beyond current $ to read string value
-        printf("Length of value: %d\n", valueLength);
+        printf("Length of value: %ld\n", valueLength);
 
         // create and initialize buffer of read size
         char* valueBuffer = (char*)malloc((valueLength + 1) * sizeof(char));
@@ -295,10 +299,10 @@ int main(int argc, char const* argv[]) {
           printf("The error message is : %s\n", strerror(errno));
           perror("Message from perror");
         } else {  // value inserted successfully
+          memset(sendBuffer, 0, STRING_LENGTH_LIMIT);
           sendBuffer[0] = 'O';
           sendBuffer[1] = 'K';
           sendBuffer[2] = '\n';
-          sendBuffer[3] = '\0';
         }
         printf("Sending message to client: %s\n", sendBuffer);
         // send message to client socket based on executed operation
@@ -319,6 +323,7 @@ int main(int argc, char const* argv[]) {
   // Destroy the hash table free heap memory
   hdestroy_r(htab);
   free(htab);
+  // TODO: Iterate over dataValues and free all allocated pointers
   return 0;
 }
 
@@ -330,8 +335,8 @@ TODO:
 keys  --> ALMOST
 0.6 Edge case: sending weird characters = sanitize input 0.7 Edge case:
 Sending commands other than SET GET 0.8 Edge case: Sending extremely long
-strings for key (longer than 32 Mb) 0.9 Edge case: Sending extremely long string
-for key AND value (longer than 32 Mb) 0.91 Edge case: Terminate connection when
+strings for key (longer than 4 M) 0.9 Edge case: Sending extremely long string
+for key AND value (longer than 4 M) 0.91 Edge case: Terminate connection when
 message length is 0
 1. Support talking to multiple clients --> multi-threading support for 1000
 threads
