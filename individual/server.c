@@ -189,15 +189,17 @@ int main(int argc, char const* argv[]) {
           sendBuffer[i++] = 'E';
           sendBuffer[i++] = '$';
           // convert string length from int to str
-          char str[STRING_LENGTH_LIMIT];
-          int length = snprintf(NULL, 0, "%d", readValue->strLen);
-          snprintf(str, length, "%d", readValue->strLen);
-          for (int j = 0; i < length; ++i) sendBuffer[i] = str[j++];
+          char numStr[STRING_LENGTH_LIMIT];
+          int numStrLength = snprintf(NULL, 0, "%d", readValue->strLen);
+          printf("Length of num string: %d\n", numStrLength);
+          snprintf(numStr, numStrLength + 1, "%d", readValue->strLen);
+          printf("Num string: %s\n", numStr);
+          for (int j = 0; j < numStrLength; ++j) sendBuffer[i++] = numStr[j];
           // append $ after length
           sendBuffer[i++] = '$';
           // append value read from table
-          for (; i < readValue->strLen; ++i)
-            sendBuffer[i] = readValue->string[i];
+          for (int j = 0; j < readValue->strLen; ++j)
+            sendBuffer[i++] = readValue->string[j];
           // append termination characters
           sendBuffer[i++] = '\n';
         }
