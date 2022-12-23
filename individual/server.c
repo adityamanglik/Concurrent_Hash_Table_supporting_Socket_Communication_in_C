@@ -16,23 +16,42 @@
 #define STRING_LENGTH_LIMIT 32 * 1024
 #define HASHTABLE_SIZE 100
 
+struct BSstring {
+  int strLen;
+  char* string;
+};
+
 char* executeOperation(char* message, int operation) { return "ERR"; }
+
+// ///////////////////////////////////////////////////////
+// //////////////////////////////////////////BEGIN MAIN
+// ///////////////////////////////////////////////////////
 
 int main(int argc, char const* argv[]) {
   // create and initialize hash table
   struct hsearch_data* htab;
   /*dynamically allocate memory for a single table.*/
   htab = (struct hsearch_data*)calloc(1, sizeof(struct hsearch_data));
-  /*zeroize the table.*/  // Not needed because calloc
+  // zeroize the table.
   // memset(htab, 0, sizeof(struct hsearch_data));
   /*create 30 table entries.*/
   assert(hcreate_r(HASHTABLE_SIZE, htab) != 0);
 
+  // Data structures to manage the hash table
+  // Space to store data strings.
+  struct BSstring dataValues[HASHTABLE_SIZE];
+  memset(dataValues, 0, sizeof(struct BSstring) * HASHTABLE_SIZE);
+  // Next location to insert data value.
+  struct BSstring* currentInsertionLocation = dataValues;
+
   // string store data to send to client
-  char sendBuffer[STRING_LENGTH_LIMIT] = "Single-thread Server: ";
+  char sendBuffer[STRING_LENGTH_LIMIT] = {0};
   char recvBuffer[STRING_LENGTH_LIMIT] = {0};
   int num_clients = 1;
-  int max_messages_per_client = 9999;
+
+  // ///////////////////////////////////////////////////////
+  // //////////////////////////////////////////SOCKET OPERATIONS
+  // ///////////////////////////////////////////////////////
 
   // create server socket
   int servSockD = socket(AF_INET, SOCK_STREAM, 0);
@@ -62,6 +81,10 @@ int main(int argc, char const* argv[]) {
   } else
     printf("Server listening..\n");
 
+  // ///////////////////////////////////////////////////////
+  // //////////////////////////////////////////START LISTENING
+  // ///////////////////////////////////////////////////////
+
   while (num_clients) {
     // integer to hold client socket.
     int clientSocket = accept(servSockD, NULL, NULL);
@@ -69,7 +92,7 @@ int main(int argc, char const* argv[]) {
       printf("Server failed to accept the client.\n");
       exit(0);
     } else
-      printf("Server accepted the client.\n");
+      printf("Server accepted client number %d.\n", num_clients);
     --num_clients;
 
     // receive message from client
@@ -89,7 +112,7 @@ int main(int argc, char const* argv[]) {
     size_t keyLength = 0, valueLength = 0;
 
     // checks if input is GET (1) or SET (2), otherwise close connection (0)
-    for (; location < msgLength;) {
+    while (location < msgLength) {
       // find operation at current location
       operation = 0;
       if (recvBuffer[location] == 'G' && recvBuffer[location + 1] == 'E' &&
@@ -101,9 +124,13 @@ int main(int argc, char const* argv[]) {
 
       printf("Operation: %d\n", operation);
       if (operation == 0) {
-        printf("Invalid operation from client, exiting.\n", operation);
+        printf("Invalid operation %d from client, exiting.\n", operation);
         break;
       }
+
+      // ///////////////////////////////////////////////////////
+      // //////////////////////////////////////////GET OPERATION
+      // ///////////////////////////////////////////////////////
 
       // GET found = read length of key
       if (operation == 1) {
@@ -149,37 +176,59 @@ int main(int argc, char const* argv[]) {
           sendBuffer[0] = 'E';
           sendBuffer[1] = 'R';
           sendBuffer[2] = 'R';
-          sendBuffer[3] = '\0';
+          sendBuffer[3] = '\n';
         } else {  // key exists
-          char* readValue = (char*)(ep->data);
-          printf("Read value from htab: %s\n", readValue);
-          // TODO: copy data to sendBuffer
-          sendBuffer[0] = 'E';
-          sendBuffer[1] = 'R';
-          sendBuffer[2] = 'R';
-          sendBuffer[3] = '\0';
+          struct BSstring* readValue = (struct BSstring*)(ep->data);
+          printf("Read value from htab: %s\n", readValue->string);
+          // Copy data to sendBuffer
+          int i = 0;
+          sendBuffer[i++] = 'V';
+          sendBuffer[i++] = 'A';
+          sendBuffer[i++] = 'L';
+          sendBuffer[i++] = 'U';
+          sendBuffer[i++] = 'E';
+          sendBuffer[i++] = '$';
+          // convert string length from int to str
+          char str[STRING_LENGTH_LIMIT];
+          int length = snprintf(NULL, 0, "%d", readValue->strLen);
+          snprintf(str, length, "%d", readValue->strLen);
+          for (int j = 0; i < length; ++i) sendBuffer[i] = str[j++];
+          // append $ after length
+          sendBuffer[i++] = '$';
+          // append value read from table
+          for (; i < readValue->strLen; ++i)
+            sendBuffer[i] = readValue->string[i];
+          // append termination characters
+          sendBuffer[i++] = '\n';
         }
         printf("Sending message to client: %s\n", sendBuffer);
         // send message to client socket based on executed operation
         send(clientSocket, sendBuffer, sizeof(sendBuffer), 0);
-
-        // increment location to next operation
-        if (recvBuffer[location] == '\n') ++location;
-        printf("Location: %d value: %c\n", location, recvBuffer[location]);
-        continue;
       }  // GET operation ends
 
+      // ///////////////////////////////////////////////////////
+      // //////////////////////////////////////////SET OPERATION
+      // ///////////////////////////////////////////////////////
       if (operation == 2) {
         printf("SET operation\n");
-        // variables for hash table ops
-        ENTRY e, *ep;
         // increment location until length number
         location += 4;
         keyLength = atoi(recvBuffer + location);
         printf("Length of key: %d\n", keyLength);
+        // Edge case: If key length > 4 Mb terminate connection
+        if (keyLength < 1 || keyLength > STRING_LENGTH_LIMIT) {
+          sendBuffer[0] = 'O';
+          sendBuffer[1] = 'K';
+          sendBuffer[2] = '\n';
+          printf("Sending message to client: %s\n", sendBuffer);
+          // send message to client socket based on executed operation
+          send(clientSocket, sendBuffer, sizeof(sendBuffer), 0);
+          printf("Invalid operation %d from client, exiting.\n", operation);
+          break;
+        }
 
         // create and initialize buffer of read size
-        char keyBuffer[keyLength + 1];
+        char* keyBuffer = (char*)malloc((keyLength + 1) * sizeof(char));
         memset(keyBuffer, 'Z', keyLength);
         keyBuffer[keyLength] = '\0';
 
@@ -208,7 +257,7 @@ int main(int argc, char const* argv[]) {
         printf("Length of value: %d\n", valueLength);
 
         // create and initialize buffer of read size
-        char valueBuffer[valueLength + 1];
+        char* valueBuffer = (char*)malloc((valueLength + 1) * sizeof(char));
         memset(valueBuffer, 'Z', valueLength);
         valueBuffer[valueLength] = '\0';
 
@@ -230,24 +279,37 @@ int main(int argc, char const* argv[]) {
         printf("Location: %d\n", location);
 
         // get lock on table, execute WRITE operation
+        // variables for hash table ops
+        currentInsertionLocation->strLen = valueLength;
+        currentInsertionLocation->string = valueBuffer;
+        ENTRY e, *ep;
         e.key = keyBuffer;
-        e.data = valueBuffer;
+        e.data = currentInsertionLocation;
+        ++currentInsertionLocation;
         int retVal = hsearch_r(e, ENTER, &ep, htab);
         printf("SET RetVal: %d\n", retVal);
         if (retVal == 0) {  // error inserting KEY == OOM
           printf("Value of errno: %d\n ", errno);
           printf("The error message is : %s\n", strerror(errno));
           perror("Message from perror");
+        } else {  // value inserted successfully
+          sendBuffer[0] = 'O';
+          sendBuffer[1] = 'K';
+          sendBuffer[2] = '\n';
+          sendBuffer[3] = '\0';
         }
         printf("Sending message to client: %s\n", sendBuffer);
         // send message to client socket based on executed operation
         send(clientSocket, sendBuffer, sizeof(sendBuffer), 0);
-
-        // increment location to next operation
-        if (recvBuffer[location] == '\n') ++location;
-        printf("Location: %d value: %c\n", location, recvBuffer[location]);
-        continue;
       }  // SET operation ends
+
+      // //////////////////////////////////////////BACK IN MAIN
+      // /////////////////////////
+
+      // increment location to next operation
+      if (recvBuffer[location] == '\n') ++location;
+      printf("Location: %d value: %c\n", location, recvBuffer[location]);
+      continue;
     }
   }
   // Close the socket
