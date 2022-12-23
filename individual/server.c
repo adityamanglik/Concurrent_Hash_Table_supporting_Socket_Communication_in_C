@@ -46,6 +46,7 @@ int main(int argc, char const* argv[]) {
 
   // string store data to send to client
   char sendBuffer[STRING_LENGTH_LIMIT] = {0};
+  int sendBufferLength = 0;
   char recvBuffer[STRING_LENGTH_LIMIT] = {0};
   int num_clients = 1;
 
@@ -178,6 +179,7 @@ int main(int argc, char const* argv[]) {
           sendBuffer[1] = 'R';
           sendBuffer[2] = 'R';
           sendBuffer[3] = '\n';
+          sendBufferLength = 4;
         } else {  // key exists
           struct BSstring* readValue = (struct BSstring*)(ep->data);
           printf("Read value from htab: %s\n", readValue->string);
@@ -204,10 +206,11 @@ int main(int argc, char const* argv[]) {
             sendBuffer[i++] = readValue->string[j];
           // append termination characters
           sendBuffer[i++] = '\n';
+          sendBufferLength = i;
         }
         printf("Sending message to client: %s\n", sendBuffer);
         // send message to client socket based on executed operation
-        send(clientSocket, sendBuffer, sizeof(sendBuffer), 0);
+        send(clientSocket, sendBuffer, sendBufferLength, 0);
       }  // GET operation ends
 
       // ///////////////////////////////////////////////////////
@@ -226,9 +229,10 @@ int main(int argc, char const* argv[]) {
           sendBuffer[1] = 'R';
           sendBuffer[2] = 'R';
           sendBuffer[3] = '\n';
+          sendBufferLength = 4;
           printf("Sending message to client: %s\n", sendBuffer);
           // send message to client socket based on executed operation
-          send(clientSocket, sendBuffer, sizeof(sendBuffer), 0);
+          send(clientSocket, sendBuffer, sendBufferLength, 0);
           printf("Invalid operation %d from client, exiting.\n", operation);
           break;
         }
@@ -303,10 +307,11 @@ int main(int argc, char const* argv[]) {
           sendBuffer[0] = 'O';
           sendBuffer[1] = 'K';
           sendBuffer[2] = '\n';
+          sendBufferLength = 3;
         }
         printf("Sending message to client: %s\n", sendBuffer);
         // send message to client socket based on executed operation
-        send(clientSocket, sendBuffer, sizeof(sendBuffer), 0);
+        send(clientSocket, sendBuffer, sendBufferLength, 0);
       }  // SET operation ends
 
       // //////////////////////////////////////////BACK IN MAIN
