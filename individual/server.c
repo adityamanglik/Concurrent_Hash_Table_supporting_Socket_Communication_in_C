@@ -52,51 +52,60 @@ int main(int argc, char const* argv[]) {
   // //////////////////////////////////////////SOCKET OPERATIONS
   // ///////////////////////////////////////////////////////
 
-  // create server socket
-  int servSockD = socket(AF_INET, SOCK_STREAM, 0);
-  if (servSockD == -1) {
-    printf("socket creation failed...\n");
-    exit(0);
-  } else
-    printf("Socket successfully created..\n");
+  int socket_desc, client_sock, c;
+  struct sockaddr_in server, client;
 
-  // define server address
-  struct sockaddr_in servAddr, client;
-  servAddr.sin_family = AF_INET;
-  servAddr.sin_port = htons(PORT_NUMBER);
-  servAddr.sin_addr.s_addr = htonl(INADDR_ANY);
-
-  // Binding newly created socket to given IP and verification
-  if ((bind(servSockD, (struct sockaddr*)&servAddr, sizeof(servAddr))) != 0) {
-    printf("Socket binding failed.\n");
-    exit(0);
-  } else
-    printf("Socket successfully binded.\n");
-
-  // Now server is ready to listen
-  if ((listen(servSockD, 1)) != 0) {
-    printf("Listen failed...\n");
-    exit(0);
-  } else
-    printf("Server listening..\n");
-
-  // ///////////////////////////////////////////////////////
-  // //////////////////////////////////////////START LISTENING
-  // ///////////////////////////////////////////////////////
-
-  while (num_clients) {
-    // integer to hold client socket.
-    int clientSocket = accept(servSockD, NULL, NULL);
-    if (clientSocket < 0) {
-      printf("Server failed to accept the client.\n");
-      exit(0);
-    } else
-      printf("Server accepted client number %d.\n", num_clients);
-    --num_clients;
-    connection_handler(&clientSocket);
+  // Create socket
+  socket_desc = socket(AF_INET, SOCK_STREAM, 0);
+  if (socket_desc == -1) {
+    printf("Could not create socket");
   }
-  // Close the socket
-  close(servSockD);
+  puts("Socket created");
+
+  // Prepare the sockaddr_in structure
+  server.sin_family = AF_INET;
+  server.sin_addr.s_addr = INADDR_ANY;
+  server.sin_port = htons(PORT_NUMBER);
+
+  // Bind
+  if (bind(socket_desc, (struct sockaddr*)&server, sizeof(server)) < 0) {
+    // print the error message
+    perror("bind failed. Error");
+    return 1;
+  }
+  puts("bind done");
+
+  // Listen
+  listen(socket_desc, 3);
+
+  // Accept and incoming connection
+  puts("Waiting for incoming connections...");
+  c = sizeof(struct sockaddr_in);
+
+  // Accept and incoming connection
+  puts("Waiting for incoming connections...");
+  c = sizeof(struct sockaddr_in);
+  pthread_t thread_id;
+
+  while ((client_sock =
+              accept(socket_desc, (struct sockaddr*)&client, (socklen_t*)&c))) {
+    puts("Connection accepted");
+
+    if (pthread_create(&thread_id, NULL, connection_handler,
+                       (void*)&client_sock) < 0) {
+      perror("could not create thread");
+      return 1;
+    }
+
+    // Now join the thread , so that we dont terminate before the thread
+    // pthread_join( thread_id , NULL);
+    puts("Handler assigned");
+  }
+
+  if (client_sock < 0) {
+    perror("accept failed");
+    return 1;
+  }
   // Destroy the hash table free heap memory
   hdestroy_r(htab);
   free(htab);

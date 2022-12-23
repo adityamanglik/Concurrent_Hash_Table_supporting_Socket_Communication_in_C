@@ -1,280 +1,367 @@
+#define _GNU_SOURCE
+#include <netinet/in.h>  //structure for storing address information
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/socket.h>  //for socket APIs
+// Headers for GNU Hash table
+#include <assert.h>
+#include <errno.h>
+#include <search.h>
 
-#define HASHTABLE_SIZE 50000  // Size of the Hash Table
+// TODO: Set 5555 as port number
+#define PORT_NUMBER 5555
+// TODO: Find out how to read long messages without stack overflow
+#define STRING_LENGTH_LIMIT 32 * 1024 * 32
+#define HASHTABLE_SIZE 100
 
-unsigned long hash_function(char* str) {
-  unsigned long i = 0;
-  for (int j = 0; j < strlen(str); j++) i += str[j];
-  return i % HASHTABLE_SIZE;
-}
-
-typedef struct Ht_item Ht_item;
-
-// Define the Hash Table Item here
-struct Ht_item {
-  char* key;
-  char* value;
+struct BSstring {
+  int strLen;
+  char* string;
 };
 
-typedef struct LinkedList LinkedList;
+// the thread function
+void* connection_handler(void*);
 
-// Define the Linkedlist here
-struct LinkedList {
-  Ht_item* item;
-  LinkedList* next;
-};
+// GLOBAL VARIABLE TO HOLD HASH TABLE
+// create and initialize hash table
+struct hsearch_data* htab;
+struct BSstring* currentInsertionLocation;
+// ///////////////////////////////////////////////////////
+// //////////////////////////////////////////BEGIN MAIN
+// ///////////////////////////////////////////////////////
 
-typedef struct HashTable HashTable;
+int main(int argc, char const* argv[]) {
+  /*dynamically allocate memory for a single table.*/
+  htab = (struct hsearch_data*)calloc(1, sizeof(struct hsearch_data));
+  // zeroize the table.
+  // memset(htab, 0, sizeof(struct hsearch_data));
+  /*create 30 table entries.*/
+  assert(hcreate_r(HASHTABLE_SIZE, htab) != 0);
 
-// Define the Hash Table here
-struct HashTable {
-  // Contains an array of pointers to items
-  Ht_item** items;
-  LinkedList** overflow_buckets;
-  int size;
-  int count;
-};
+  // Data structures to manage the hash table
+  // Space to store data strings.
+  struct BSstring dataValues[HASHTABLE_SIZE];
+  memset(dataValues, 0, sizeof(struct BSstring) * HASHTABLE_SIZE);
+  // Next location to insert data value.
+  currentInsertionLocation = dataValues;
 
-static LinkedList* allocate_list() {
-  // Allocates memory for a Linkedlist pointer
-  LinkedList* list = (LinkedList*)malloc(sizeof(LinkedList));
-  return list;
-}
+  int num_clients = 1001;  // accept 1000 clients
 
-static LinkedList* linkedlist_insert(LinkedList* list, Ht_item* item) {
-  // Inserts the item onto the Linked List
-  if (!list) {
-    LinkedList* head = allocate_list();
-    head->item = item;
-    head->next = NULL;
-    list = head;
-    return list;
+  // ///////////////////////////////////////////////////////
+  // //////////////////////////////////////////SOCKET OPERATIONS
+  // ///////////////////////////////////////////////////////
+
+  int socket_desc, client_sock, c;
+  struct sockaddr_in server, client;
+
+  // Create socket
+  socket_desc = socket(AF_INET, SOCK_STREAM, 0);
+  if (socket_desc == -1) {
+    printf("Could not create socket");
   }
+  puts("Socket created");
 
-  else if (list->next == NULL) {
-    LinkedList* node = allocate_list();
-    node->item = item;
-    node->next = NULL;
-    list->next = node;
-    return list;
+  // Prepare the sockaddr_in structure
+  server.sin_family = AF_INET;
+  server.sin_addr.s_addr = INADDR_ANY;
+  server.sin_port = htons(PORT_NUMBER);
+
+  // Bind
+  if (bind(socket_desc, (struct sockaddr*)&server, sizeof(server)) < 0) {
+    // print the error message
+    perror("bind failed. Error");
+    return 1;
   }
+  puts("bind done");
 
-  LinkedList* temp = list;
-  while (temp->next->next) {
-    temp = temp->next;
-  }
+  // Listen
+  listen(socket_desc, 3);
 
-  LinkedList* node = allocate_list();
-  node->item = item;
-  node->next = NULL;
-  temp->next = node;
+  // Accept and incoming connection
+  puts("Waiting for incoming connections...");
+  c = sizeof(struct sockaddr_in);
 
-  return list;
-}
+  // Accept and incoming connection
+  puts("Waiting for incoming connections...");
+  c = sizeof(struct sockaddr_in);
+  pthread_t thread_id;
 
-static Ht_item* linkedlist_remove(LinkedList* list) {
-  // Removes the head from the linked list
-  // and returns the item of the popped element
-  if (!list) return NULL;
-  if (!list->next) return NULL;
-  LinkedList* node = list->next;
-  LinkedList* temp = list;
-  temp->next = NULL;
-  list = node;
-  Ht_item* it = NULL;
-  memcpy(temp->item, it, sizeof(Ht_item));
-  free(temp->item->key);
-  free(temp->item->value);
-  free(temp->item);
-  free(temp);
-  return it;
-}
+  while ((client_sock =
+              accept(socket_desc, (struct sockaddr*)&client, (socklen_t*)&c))) {
+    puts("Connection accepted");
 
-static void free_linkedlist(LinkedList* list) {
-  LinkedList* temp = list;
-  while (list) {
-    temp = list;
-    list = list->next;
-    free(temp->item->key);
-    free(temp->item->value);
-    free(temp->item);
-    free(temp);
-  }
-}
-
-static LinkedList** create_overflow_buckets(HashTable* table) {
-  // Create the overflow buckets; an array of linkedlists
-  LinkedList** buckets = (LinkedList**)calloc(table->size, sizeof(LinkedList*));
-  for (int i = 0; i < table->size; i++) buckets[i] = NULL;
-  return buckets;
-}
-
-static void free_overflow_buckets(HashTable* table) {
-  // Free all the overflow bucket lists
-  LinkedList** buckets = table->overflow_buckets;
-  for (int i = 0; i < table->size; i++) free_linkedlist(buckets[i]);
-  free(buckets);
-}
-
-Ht_item* create_item(char* key, char* value) {
-  // Creates a pointer to a new hash table item
-  Ht_item* item = (Ht_item*)malloc(sizeof(Ht_item));
-  item->key = (char*)malloc(strlen(key) + 1);
-  item->value = (char*)malloc(strlen(value) + 1);
-
-  strcpy(item->key, key);
-  strcpy(item->value, value);
-
-  return item;
-}
-
-HashTable* create_table(int size) {
-  // Creates a new HashTable
-  HashTable* table = (HashTable*)malloc(sizeof(HashTable));
-  table->size = size;
-  table->count = 0;
-  table->items = (Ht_item**)calloc(table->size, sizeof(Ht_item*));
-  for (int i = 0; i < table->size; i++) table->items[i] = NULL;
-  table->overflow_buckets = create_overflow_buckets(table);
-
-  return table;
-}
-
-void free_item(Ht_item* item) {
-  // Frees an item
-  free(item->key);
-  free(item->value);
-  free(item);
-}
-
-void free_table(HashTable* table) {
-  // Frees the table
-  for (int i = 0; i < table->size; i++) {
-    Ht_item* item = table->items[i];
-    if (item != NULL) free_item(item);
-  }
-
-  free_overflow_buckets(table);
-  free(table->items);
-  free(table);
-}
-
-void handle_collision(HashTable* table, unsigned long index, Ht_item* item) {
-  LinkedList* head = table->overflow_buckets[index];
-
-  if (head == NULL) {
-    // We need to create the list
-    head = allocate_list();
-    head->item = item;
-    table->overflow_buckets[index] = head;
-    return;
-  } else {
-    // Insert to the list
-    table->overflow_buckets[index] = linkedlist_insert(head, item);
-    return;
-  }
-}
-
-void ht_insert(HashTable* table, char* key, char* value) {
-  // Create the item
-  Ht_item* item = create_item(key, value);
-
-  // Compute the index
-  unsigned long index = hash_function(key);
-
-  Ht_item* current_item = table->items[index];
-
-  if (current_item == NULL) {
-    // Key does not exist.
-    if (table->count == table->size) {
-      // Hash Table Full
-      printf("Insert Error: Hash Table is full\n");
-      // Remove the create item
-      free_item(item);
-      return;
+    if (pthread_create(&thread_id, NULL, connection_handler,
+                       (void*)&client_sock) < 0) {
+      perror("could not create thread");
+      return 1;
     }
 
-    // Insert directly
-    table->items[index] = item;
-    table->count++;
+    // Now join the thread , so that we dont terminate before the thread
+    // pthread_join( thread_id , NULL);
+    puts("Handler assigned");
   }
 
-  else {
-    // Scenario 1: We only need to update value
-    if (strcmp(current_item->key, key) == 0) {
-      strcpy(table->items[index]->value, value);
-      return;
-    }
-
-    else {
-      // Scenario 2: Collision
-      handle_collision(table, index, item);
-      return;
-    }
+  if (client_sock < 0) {
+    perror("accept failed");
+    return 1;
   }
-}
-
-char* ht_search(HashTable* table, char* key) {
-  // Searches the key in the hashtable
-  // and returns NULL if it doesn't exist
-  int index = hash_function(key);
-  Ht_item* item = table->items[index];
-  LinkedList* head = table->overflow_buckets[index];
-
-  // Ensure that we move to items which are not NULL
-  while (item != NULL) {
-    if (strcmp(item->key, key) == 0) return item->value;
-    if (head == NULL) return NULL;
-    item = head->item;
-    head = head->next;
-  }
-  return NULL;
-}
-
-void print_search(HashTable* table, char* key) {
-  char* val;
-  if ((val = ht_search(table, key)) == NULL) {
-    printf("%s does not exist\n", key);
-    return;
-  } else {
-    printf("Key:%s, Value:%s\n", key, val);
-  }
-}
-
-void print_table(HashTable* table) {
-  printf("\n-------------------\n");
-  for (int i = 0; i < table->size; i++) {
-    if (table->items[i]) {
-      printf("Index:%d, Key:%s, Value:%s", i, table->items[i]->key,
-             table->items[i]->value);
-      if (table->overflow_buckets[i]) {
-        printf(" => Overflow Bucket => ");
-        LinkedList* head = table->overflow_buckets[i];
-        while (head) {
-          printf("Key:%s, Value:%s ", head->item->key, head->item->value);
-          head = head->next;
-        }
-      }
-      printf("\n");
-    }
-  }
-  printf("-------------------\n");
-}
-
-int main() {
-  HashTable* ht = create_table(HASHTABLE_SIZE);
-  ht_insert(ht, "1", "First address");
-  ht_insert(ht, "2", "Second address");
-  ht_insert(ht, "Hel", "Third address");
-  ht_insert(ht, "Cau", "Fourth address");
-  print_search(ht, "1");
-  print_search(ht, "2");
-  print_search(ht, "3");
-  print_search(ht, "Hel");
-  print_search(ht, "Cau");
-  print_table(ht);
-  free_table(ht);
+  // Destroy the hash table free heap memory
+  hdestroy_r(htab);
+  free(htab);
+  // TODO: Iterate over dataValues and free all allocated pointers
   return 0;
 }
+
+// ///////////////////////////////////////////////////////
+// //////////////////////////////////////////END OF MAIN FUNCTION
+// ///////////////////////////////////////////////////////
+
+// Handle connection for each client
+void* connection_handler(void* socket_desc) {
+  int clientSocket = *(int*)socket_desc;
+
+  // string store data to send to client
+  char sendBuffer[STRING_LENGTH_LIMIT] = {0};
+  int sendBufferLength = 0;
+  char recvBuffer[STRING_LENGTH_LIMIT] = {0};
+
+  // receive message from client
+  long msgLength = read(clientSocket, recvBuffer, sizeof(recvBuffer));
+
+  // print buffer which contains the client contents
+  printf("From client: %s\n", recvBuffer);
+  printf("Message length: %ld\n", msgLength);
+  if (msgLength == 0) {
+    printf("No more messages to read, exiting.\n");
+    return;
+  }
+
+  // parse the input string
+  long location = 0;
+  int operation = 0;
+  long keyLength = 0, valueLength = 0;
+
+  // checks if input is GET (1) or SET (2), otherwise close connection (0)
+  while (location < STRING_LENGTH_LIMIT) {
+    // find operation at current location
+    operation = 0;
+    if (recvBuffer[location] == 'G' && recvBuffer[location + 1] == 'E' &&
+        recvBuffer[location + 2] == 'T')
+      operation = 1;
+    else if (recvBuffer[location] == 'S' && recvBuffer[location + 1] == 'E' &&
+             recvBuffer[location + 2] == 'T')
+      operation = 2;
+
+    printf("Operation: %d\n", operation);
+    if (operation == 0) {
+      printf("Invalid operation %d from client, exiting.\n", operation);
+      break;
+    }
+
+    // ///////////////////////////////////////////////////////
+    // //////////////////////////////////////////GET OPERATION
+    // ///////////////////////////////////////////////////////
+
+    // GET found = read length of key
+    if (operation == 1) {
+      printf("GET operation\n");
+      // increment location until length number
+      location += 4;
+      keyLength = atoi(recvBuffer + location);
+      ++location;  // increment beyond current $ to enable next dollar search
+      printf("Length of key: %ld\n", keyLength);
+
+      // create and initialize buffer of read size
+      char keyBuffer[keyLength + 1];
+      memset(keyBuffer, 'Z', keyLength);
+      keyBuffer[keyLength] = '\0';
+
+      // update location to start reading key value
+      while (recvBuffer[location - 1] != '$') ++location;
+
+      printf("Location: %ld\n", location);
+
+      // copy key into buffer until keyLength
+      for (int j = 0; j < keyLength; ++j) {
+        // printf("recvbuffer: %c\n", recvBuffer[i]);
+        keyBuffer[j] = recvBuffer[j + location];
+      }
+      // increment location to match current value
+      location += keyLength;
+      printf("Key read from GET: %s\n", keyBuffer);
+      printf("Location: %ld\n", location);
+
+      // execute READ operation on DB and print value or ERR
+      // variables for hash table ops
+      ENTRY e, *ep;
+      e.key = keyBuffer;
+      int retVal = hsearch_r(e, FIND, &ep, htab);
+      printf("GET RetVal: %d\n", retVal);
+      if (retVal == 0) {  // key does not exist
+        printf("Value of errno: %d\n ", errno);
+        printf("The error message is : %s\n", strerror(errno));
+        perror("Message from perror");
+        memset(sendBuffer, 0, STRING_LENGTH_LIMIT);
+        sendBuffer[0] = 'E';
+        sendBuffer[1] = 'R';
+        sendBuffer[2] = 'R';
+        sendBuffer[3] = '\n';
+        sendBufferLength = 4;
+      } else {  // key exists
+        struct BSstring* readValue = (struct BSstring*)(ep->data);
+        printf("Read value from htab: %s\n", readValue->string);
+        // Copy data to sendBuffer
+        memset(sendBuffer, 0, STRING_LENGTH_LIMIT);
+        int i = 0;
+        sendBuffer[i++] = 'V';
+        sendBuffer[i++] = 'A';
+        sendBuffer[i++] = 'L';
+        sendBuffer[i++] = 'U';
+        sendBuffer[i++] = 'E';
+        sendBuffer[i++] = '$';
+        // convert string length from int to str
+        char numStr[STRING_LENGTH_LIMIT];
+        int numStrLength = snprintf(NULL, 0, "%d", readValue->strLen);
+        printf("Length of num string: %d\n", numStrLength);
+        snprintf(numStr, numStrLength + 1, "%d", readValue->strLen);
+        printf("Num string: %s\n", numStr);
+        for (int j = 0; j < numStrLength; ++j) sendBuffer[i++] = numStr[j];
+        // append $ after length
+        sendBuffer[i++] = '$';
+        // append value read from table
+        for (int j = 0; j < readValue->strLen; ++j)
+          sendBuffer[i++] = readValue->string[j];
+        // append termination characters
+        sendBuffer[i++] = '\n';
+        sendBufferLength = i;
+      }
+      printf("Sending message to client: %s\n", sendBuffer);
+      // send message to client socket based on executed operation
+      send(clientSocket, sendBuffer, sendBufferLength, 0);
+    }  // GET operation ends
+
+    // ///////////////////////////////////////////////////////
+    // //////////////////////////////////////////SET OPERATION
+    // ///////////////////////////////////////////////////////
+    if (operation == 2) {
+      printf("SET operation\n");
+      // increment location until length number
+      location += 4;
+      keyLength = atoi(recvBuffer + location);
+      printf("Length of key: %ld\n", keyLength);
+      // Edge case: If key length > 4 Mb terminate connection
+      if (keyLength < 1 || keyLength > STRING_LENGTH_LIMIT) {
+        memset(sendBuffer, 0, STRING_LENGTH_LIMIT);
+        sendBuffer[0] = 'E';
+        sendBuffer[1] = 'R';
+        sendBuffer[2] = 'R';
+        sendBuffer[3] = '\n';
+        sendBufferLength = 4;
+        printf("Sending message to client: %s\n", sendBuffer);
+        // send message to client socket based on executed operation
+        send(clientSocket, sendBuffer, sendBufferLength, 0);
+        printf("Invalid operation %d from client, exiting.\n", operation);
+        break;
+      }
+
+      // create and initialize buffer of read size
+      char* keyBuffer = (char*)malloc((keyLength + 1) * sizeof(char));
+      memset(keyBuffer, 'Z', keyLength);
+      keyBuffer[keyLength] = '\0';
+
+      ++location;  // increment beyond current $ to enable next dollar search
+      // update location to start reading key value
+      while (recvBuffer[location - 1] != '$') ++location;
+
+      printf("Location: %ld\n", location);
+
+      // copy key into buffer until keyLength
+      for (int i = location; i < (location + keyLength); ++i) {
+        // printf("recvbuffer: %c\n", recvBuffer[i]);
+        keyBuffer[i - location] = recvBuffer[i];
+      }
+      // increment location to $ after key
+      location += keyLength;
+      printf("Key read from SET: %s\n", keyBuffer);
+      printf("Location: %ld\n", location);
+
+      // read value
+      ++location;  // increment beyond current $ to read value
+      valueLength = atoi(recvBuffer + location);
+      ++location;  // increment beyond current $ to read string value
+      printf("Length of value: %ld\n", valueLength);
+
+      // create and initialize buffer of read size
+      char* valueBuffer = (char*)malloc((valueLength + 1) * sizeof(char));
+      memset(valueBuffer, 'Z', valueLength);
+      valueBuffer[valueLength] = '\0';
+
+      // update location to start reading key value
+      while (recvBuffer[location - 1] != '$') ++location;
+
+      printf("Location: %ld\n", location);
+
+      // copy key into buffer until keyLength
+      for (int i = location; i < (location + valueLength); ++i) {
+        // printf("recvbuffer: %c\n", recvBuffer[i]);
+        valueBuffer[i - location] = recvBuffer[i];
+      }
+      // increment location to $ after key
+      location += valueLength;
+      printf("Value read from SET: %s\n", valueBuffer);
+      printf("Location: %ld\n", location);
+
+      // get lock on table, execute WRITE operation
+      // variables for hash table ops
+      currentInsertionLocation->strLen = valueLength;
+      currentInsertionLocation->string = valueBuffer;
+      ENTRY e, *ep;
+      e.key = keyBuffer;
+      e.data = currentInsertionLocation;
+      ++currentInsertionLocation;
+      int retVal = hsearch_r(e, ENTER, &ep, htab);
+      printf("SET RetVal: %d\n", retVal);
+      if (retVal == 0) {  // error inserting KEY == OOM
+        printf("Value of errno: %d\n ", errno);
+        printf("The error message is : %s\n", strerror(errno));
+        perror("Message from perror");
+      } else {  // value inserted successfully
+        memset(sendBuffer, 0, STRING_LENGTH_LIMIT);
+        sendBuffer[0] = 'O';
+        sendBuffer[1] = 'K';
+        sendBuffer[2] = '\n';
+        sendBufferLength = 3;
+      }
+      printf("Sending message to client: %s\n", sendBuffer);
+      // send message to client socket based on executed operation
+      send(clientSocket, sendBuffer, sendBufferLength, 0);
+    }  // SET operation ends
+
+    // //////////////////////////////////////////BACK IN MAIN
+    // /////////////////////////
+
+    // increment location to next operation
+    if (recvBuffer[location] == '\n') ++location;
+    printf("Location: %ld value: %c\n", location, recvBuffer[location]);
+    continue;
+  }
+  return;
+}
+
+/*
+TODO:
+0. Support multiple messages with same client --> DONE
+0.4 Binary safe strings: Length matters, not the \0 character
+0.5 Implement internal database to SET (add or replace) and GET (in parallel)
+keys  --> ALMOST
+0.6 Edge case: sending weird characters = sanitize input 0.7 Edge case:
+Sending commands other than SET GET 0.8 Edge case: Sending extremely long
+strings for key (longer than 4 M) 0.9 Edge case: Sending extremely long string
+for key AND value (longer than 4 M) 0.91 Edge case: Terminate connection when
+message length is 0
+1. Support talking to multiple clients --> multi-threading support for 1000
+threads
+1.7 Edge Case: client terminating the connection before finishing a request.
+1.8. Misbehaving client should be terminated --> close connection
+*/
