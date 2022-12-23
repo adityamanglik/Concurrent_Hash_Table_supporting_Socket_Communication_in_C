@@ -3,7 +3,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <strings.h>
 #include <sys/socket.h>  //for socket APIs
 // Headers for GNU Hash table
 #include <assert.h>
@@ -13,15 +12,13 @@
 // TODO: Set 5555 as port number
 #define PORT_NUMBER 5555
 // TODO: Find out how to read long messages without stack overflow
-#define STRING_LENGTH_LIMIT 32 * 1024
+#define STRING_LENGTH_LIMIT 32 * 1024 * 32
 #define HASHTABLE_SIZE 100
 
 struct BSstring {
   int strLen;
   char* string;
 };
-
-char* executeOperation(char* message, int operation) { return "ERR"; }
 
 // ///////////////////////////////////////////////////////
 // //////////////////////////////////////////BEGIN MAIN
@@ -48,7 +45,7 @@ int main(int argc, char const* argv[]) {
   char sendBuffer[STRING_LENGTH_LIMIT] = {0};
   int sendBufferLength = 0;
   char recvBuffer[STRING_LENGTH_LIMIT] = {0};
-  int num_clients = 1;
+  int num_clients = 1001; // accept 1000 clients
 
   // ///////////////////////////////////////////////////////
   // //////////////////////////////////////////SOCKET OPERATIONS
@@ -63,7 +60,7 @@ int main(int argc, char const* argv[]) {
     printf("Socket successfully created..\n");
 
   // define server address
-  struct sockaddr_in servAddr;
+  struct sockaddr_in servAddr, client;
   servAddr.sin_family = AF_INET;
   servAddr.sin_port = htons(PORT_NUMBER);
   servAddr.sin_addr.s_addr = htonl(INADDR_ANY);
@@ -97,10 +94,10 @@ int main(int argc, char const* argv[]) {
     --num_clients;
 
     // receive message from client
-    ssize_t msgLength = read(clientSocket, recvBuffer, sizeof(recvBuffer));
+    long msgLength = read(clientSocket, recvBuffer, sizeof(recvBuffer));
 
     // print buffer which contains the client contents
-    printf("From client: %s", recvBuffer);
+    printf("From client: %s\n", recvBuffer);
     printf("Message length: %ld\n", msgLength);
     if (msgLength == 0) {
       printf("No more messages to read, exiting.\n");
@@ -108,12 +105,12 @@ int main(int argc, char const* argv[]) {
     }
 
     // parse the input string
-    int location = 0;
+    long location = 0;
     int operation = 0;
-    size_t keyLength = 0, valueLength = 0;
+    long keyLength = 0, valueLength = 0;
 
     // checks if input is GET (1) or SET (2), otherwise close connection (0)
-    while (location < msgLength) {
+    while (location < STRING_LENGTH_LIMIT) {
       // find operation at current location
       operation = 0;
       if (recvBuffer[location] == 'G' && recvBuffer[location + 1] == 'E' &&
@@ -136,8 +133,6 @@ int main(int argc, char const* argv[]) {
       // GET found = read length of key
       if (operation == 1) {
         printf("GET operation\n");
-        // variables for hash table ops
-        ENTRY e, *ep;
         // increment location until length number
         location += 4;
         keyLength = atoi(recvBuffer + location);
@@ -150,23 +145,23 @@ int main(int argc, char const* argv[]) {
         keyBuffer[keyLength] = '\0';
 
         // update location to start reading key value
-        while (recvBuffer[location - 1] != '$' && location < msgLength)
-          ++location;
+        while (recvBuffer[location - 1] != '$') ++location;
 
-        printf("Location: %d\n", location);
+        printf("Location: %ld\n", location);
 
         // copy key into buffer until keyLength
-        for (int i = location; i < (location + keyLength) && i < msgLength;
-             ++i) {
+        for (int j = 0; j < keyLength; ++j) {
           // printf("recvbuffer: %c\n", recvBuffer[i]);
-          keyBuffer[i - location] = recvBuffer[i];
+          keyBuffer[j] = recvBuffer[j + location];
         }
         // increment location to match current value
         location += keyLength;
         printf("Key read from GET: %s\n", keyBuffer);
-        printf("Location: %d\n", location);
+        printf("Location: %ld\n", location);
 
         // execute READ operation on DB and print value or ERR
+        // variables for hash table ops
+        ENTRY e, *ep;
         e.key = keyBuffer;
         int retVal = hsearch_r(e, FIND, &ep, htab);
         printf("GET RetVal: %d\n", retVal);
@@ -244,21 +239,19 @@ int main(int argc, char const* argv[]) {
 
         ++location;  // increment beyond current $ to enable next dollar search
         // update location to start reading key value
-        while (recvBuffer[location - 1] != '$' && location < msgLength)
-          ++location;
+        while (recvBuffer[location - 1] != '$') ++location;
 
-        printf("Location: %d\n", location);
+        printf("Location: %ld\n", location);
 
         // copy key into buffer until keyLength
-        for (int i = location; i < (location + keyLength) && i < msgLength;
-             ++i) {
+        for (int i = location; i < (location + keyLength); ++i) {
           // printf("recvbuffer: %c\n", recvBuffer[i]);
           keyBuffer[i - location] = recvBuffer[i];
         }
         // increment location to $ after key
         location += keyLength;
         printf("Key read from SET: %s\n", keyBuffer);
-        printf("Location: %d\n", location);
+        printf("Location: %ld\n", location);
 
         // read value
         ++location;  // increment beyond current $ to read value
@@ -272,21 +265,19 @@ int main(int argc, char const* argv[]) {
         valueBuffer[valueLength] = '\0';
 
         // update location to start reading key value
-        while (recvBuffer[location - 1] != '$' && location < msgLength)
-          ++location;
+        while (recvBuffer[location - 1] != '$') ++location;
 
-        printf("Location: %d\n", location);
+        printf("Location: %ld\n", location);
 
         // copy key into buffer until keyLength
-        for (int i = location; i < (location + valueLength) && i < msgLength;
-             ++i) {
+        for (int i = location; i < (location + valueLength); ++i) {
           // printf("recvbuffer: %c\n", recvBuffer[i]);
           valueBuffer[i - location] = recvBuffer[i];
         }
         // increment location to $ after key
         location += valueLength;
         printf("Value read from SET: %s\n", valueBuffer);
-        printf("Location: %d\n", location);
+        printf("Location: %ld\n", location);
 
         // get lock on table, execute WRITE operation
         // variables for hash table ops
@@ -319,7 +310,7 @@ int main(int argc, char const* argv[]) {
 
       // increment location to next operation
       if (recvBuffer[location] == '\n') ++location;
-      printf("Location: %d value: %c\n", location, recvBuffer[location]);
+      printf("Location: %ld value: %c\n", location, recvBuffer[location]);
       continue;
     }
   }
