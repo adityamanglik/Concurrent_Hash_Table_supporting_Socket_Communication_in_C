@@ -13,7 +13,8 @@
 #define PORT_NUMBER 5555
 // TODO: Find out how to read long messages without stack overflow
 #define STRING_LENGTH_LIMIT 32 * 1024 * 32
-#define HASHTABLE_SIZE 100
+#define KEY_TRUNCATION 99999
+#define HASHTABLE_SIZE 999
 
 struct BSstring {
   int strLen;
@@ -26,7 +27,10 @@ void* connection_handler(void*);
 // GLOBAL VARIABLE TO HOLD HASH TABLE
 // create and initialize hash table
 struct hsearch_data* htab;
-struct BSstring* currentInsertionLocation;
+struct BSstring* currentInsertionLocation = NULL;
+// Space to store data strings.
+struct BSstring dataValues[HASHTABLE_SIZE];
+
 // ///////////////////////////////////////////////////////
 // //////////////////////////////////////////BEGIN MAIN
 // ///////////////////////////////////////////////////////
@@ -34,14 +38,7 @@ struct BSstring* currentInsertionLocation;
 int main(int argc, char const* argv[]) {
   /*dynamically allocate memory for a single table.*/
   htab = (struct hsearch_data*)calloc(1, sizeof(struct hsearch_data));
-  // zeroize the table.
-  // memset(htab, 0, sizeof(struct hsearch_data));
-  /*create 30 table entries.*/
   assert(hcreate_r(HASHTABLE_SIZE, htab) != 0);
-
-  // Data structures to manage the hash table
-  // Space to store data strings.
-  struct BSstring dataValues[HASHTABLE_SIZE];
   memset(dataValues, 0, sizeof(struct BSstring) * HASHTABLE_SIZE);
   // Next location to insert data value.
   currentInsertionLocation = dataValues;
@@ -77,10 +74,6 @@ int main(int argc, char const* argv[]) {
 
   // Listen
   listen(socket_desc, 3);
-
-  // Accept and incoming connection
-  puts("Waiting for incoming connections...");
-  c = sizeof(struct sockaddr_in);
 
   // Accept and incoming connection
   puts("Waiting for incoming connections...");
@@ -156,7 +149,7 @@ void* connection_handler(void* socket_desc) {
     printf("Operation: %d\n", operation);
     if (operation == 0) {
       printf("Invalid operation %d from client, exiting.\n", operation);
-      break;
+      return;
     }
 
     // ///////////////////////////////////////////////////////
@@ -172,8 +165,11 @@ void* connection_handler(void* socket_desc) {
       ++location;  // increment beyond current $ to enable next dollar search
       printf("Length of key: %ld\n", keyLength);
 
+      // Truncate key for edge case
+      if (keyLength > KEY_TRUNCATION) keyLength = KEY_TRUNCATION;
+
       // create and initialize buffer of read size
-      char keyBuffer[keyLength + 1];
+      char* keyBuffer = (char*)malloc((keyLength + 1) * sizeof(char));
       memset(keyBuffer, 'Z', keyLength);
       keyBuffer[keyLength] = '\0';
 
@@ -239,6 +235,7 @@ void* connection_handler(void* socket_desc) {
       printf("Sending message to client: %s\n", sendBuffer);
       // send message to client socket based on executed operation
       send(clientSocket, sendBuffer, sendBufferLength, 0);
+      free(keyBuffer);
     }  // GET operation ends
 
     // ///////////////////////////////////////////////////////
@@ -262,8 +259,11 @@ void* connection_handler(void* socket_desc) {
         // send message to client socket based on executed operation
         send(clientSocket, sendBuffer, sendBufferLength, 0);
         printf("Invalid operation %d from client, exiting.\n", operation);
-        break;
+        return;
       }
+      
+      // Truncate key for edge case
+      if (keyLength > KEY_TRUNCATION) keyLength = KEY_TRUNCATION;
 
       // create and initialize buffer of read size
       char* keyBuffer = (char*)malloc((keyLength + 1) * sizeof(char));
@@ -318,20 +318,33 @@ void* connection_handler(void* socket_desc) {
       currentInsertionLocation->string = valueBuffer;
       ENTRY e, *ep;
       e.key = keyBuffer;
-      e.data = currentInsertionLocation;
-      ++currentInsertionLocation;
-      int retVal = hsearch_r(e, ENTER, &ep, htab);
-      printf("SET RetVal: %d\n", retVal);
-      if (retVal == 0) {  // error inserting KEY == OOM
-        printf("Value of errno: %d\n ", errno);
-        printf("The error message is : %s\n", strerror(errno));
-        perror("Message from perror");
-      } else {  // value inserted successfully
+      // Find before inserting new value
+      int retVal = hsearch_r(e, FIND, &ep, htab);
+      if (retVal != 0) {  // value already exists in table
+        struct BSstring* readValue = (struct BSstring*)(ep->data);
+        readValue->strLen = valueLength;
+        readValue->string = valueBuffer;
         memset(sendBuffer, 0, STRING_LENGTH_LIMIT);
         sendBuffer[0] = 'O';
         sendBuffer[1] = 'K';
         sendBuffer[2] = '\n';
         sendBufferLength = 3;
+      } else {  // value does not exist, create new entry
+        e.data = currentInsertionLocation;
+        ++currentInsertionLocation;
+        retVal = hsearch_r(e, ENTER, &ep, htab);
+        printf("SET RetVal: %d\n", retVal);
+        if (retVal == 0) {  // error inserting KEY == OOM
+          printf("Value of errno: %d\n ", errno);
+          printf("The error message is : %s\n", strerror(errno));
+          perror("Message from perror");
+        } else {  // value inserted successfully
+          memset(sendBuffer, 0, STRING_LENGTH_LIMIT);
+          sendBuffer[0] = 'O';
+          sendBuffer[1] = 'K';
+          sendBuffer[2] = '\n';
+          sendBufferLength = 3;
+        }
       }
       printf("Sending message to client: %s\n", sendBuffer);
       // send message to client socket based on executed operation
