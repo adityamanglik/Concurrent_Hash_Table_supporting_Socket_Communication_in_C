@@ -124,6 +124,14 @@ void* connection_handler(void* socket_desc) {
   // receive message from client
   long msgLength = read(clientSocket, recvBuffer, STRING_LENGTH_LIMIT);
 
+  // Input sanitizer
+  for (long i = 0; i < STRING_LENGTH_LIMIT; i++) {
+    if (recvBuffer[i] > 127) {
+      printf("Invalid characters in input, exiting.\n");
+      return;
+    }
+  }
+
   // print buffer which contains the client contents
   printf("From client: %s\n", recvBuffer);
   printf("Message length: %ld\n", msgLength);
@@ -405,14 +413,15 @@ TODO:
 0. Support multiple messages with same client --> DONE
 0.4 Binary safe strings: Length matters, not the \0 character
 0.5 Implement internal database to SET (add or replace) and GET (in parallel)
-keys  --> ALMOST
-0.6 Edge case: sending weird characters = sanitize input 0.7 Edge case:
-Sending commands other than SET GET 0.8 Edge case: Sending extremely long
-strings for key (longer than 4 M) 0.9 Edge case: Sending extremely long string
-for key AND value (longer than 4 M) 0.91 Edge case: Terminate connection when
-message length is 0
+keys  --> DONE
+0.6 Edge case: sending weird characters = sanitize input --DONE
+0.7 Edge case: Sending commands other than SET GET --> DONE
+0.8 Edge case: Sending extremely long strings for key (longer than 4 M) --> DONE
+0.9 Edge case: Sending extremely long string for key AND value (longer than 4 M)
+--> DONE 
+0.91 Edge case: Terminate connection when message length is 0 --> DONE
 1. Support talking to multiple clients --> multi-threading support for 1000
-threads
+threads --> DONE
 1.7 Edge Case: client terminating the connection before finishing a request.
 1.8. Misbehaving client should be terminated --> close connection
 */
