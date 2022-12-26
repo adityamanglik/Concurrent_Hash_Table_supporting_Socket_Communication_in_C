@@ -8,6 +8,7 @@
 #include <assert.h>
 #include <errno.h>
 #include <search.h>
+#include <pthread.h>
 
 // TODO: Set 5555 as port number
 #define PORT_NUMBER 5555
@@ -128,7 +129,7 @@ void* connection_handler(void* socket_desc) {
   for (long i = 0; i < STRING_LENGTH_LIMIT; i++) {
     if (recvBuffer[i] > 127) {
       printf("Invalid characters in input, exiting.\n");
-      return;
+      return NULL;
     }
   }
 
@@ -137,7 +138,7 @@ void* connection_handler(void* socket_desc) {
   printf("Message length: %ld\n", msgLength);
   if (msgLength < 1) {
     printf("No more messages to read, exiting.\n");
-    return;
+    return NULL;
   }
 
   // parse the input string
@@ -159,7 +160,7 @@ void* connection_handler(void* socket_desc) {
     printf("Operation: %d\n", operation);
     if (operation == 0) {
       printf("Invalid operation %d from client, exiting.\n", operation);
-      return;
+      return NULL;
     }
 
     // ///////////////////////////////////////////////////////
@@ -185,8 +186,8 @@ void* connection_handler(void* socket_desc) {
         printf("Sending message to client: %s\n", sendBuffer);
         // send message to client socket based on executed operation
         send(clientSocket, sendBuffer, sendBufferLength, 0);
-        printf("Invalid keyLength %d from client, exiting.\n", keyLength);
-        return;
+        printf("Invalid keyLength %ld from client, exiting.\n", keyLength);
+        return NULL;
       }
 
       // create and initialize buffer of keyLength size
@@ -215,6 +216,8 @@ void* connection_handler(void* socket_desc) {
       // variables for hash table ops
       ENTRY e, *ep;
       e.key = keyBuffer;
+      // obtain lock before accessing table
+      pthread_mutex_lock(&lock);
       int retVal = hsearch_r(e, FIND, &ep, htab);
       printf("GET RetVal: %d\n", retVal);
       if (retVal == 0) {  // key does not exist
@@ -257,6 +260,8 @@ void* connection_handler(void* socket_desc) {
       printf("Sending message to client: %s\n", sendBuffer);
       // send message to client socket based on executed operation
       send(clientSocket, sendBuffer, sendBufferLength, 0);
+      // release lock after sending message
+      pthread_mutex_unlock(&lock);
       free(keyBuffer);
     }  // GET operation ends
 
@@ -281,8 +286,8 @@ void* connection_handler(void* socket_desc) {
         printf("Sending message to client: %s\n", sendBuffer);
         // send message to client socket based on executed operation
         send(clientSocket, sendBuffer, sendBufferLength, 0);
-        printf("Invalid key length %d from client, exiting.\n", keyLength);
-        return;
+        printf("Invalid key length %ld from client, exiting.\n", keyLength);
+        return NULL;
       }
 
       // create and initialize buffer of read size
@@ -325,7 +330,7 @@ void* connection_handler(void* socket_desc) {
         // send message to client socket based on executed operation
         send(clientSocket, sendBuffer, sendBufferLength, 0);
         printf("Invalid value length %d from client, exiting.\n", valueLength);
-        return;
+        return NULL;
       }
 
       printf("Length of value: %ld\n", valueLength);
@@ -351,14 +356,13 @@ void* connection_handler(void* socket_desc) {
       location += valueLength;
       printf("Value read from SET: %s\n", valueBuffer);
       printf("Location: %ld Value: %c\n", location, recvBuffer[location]);
-
+      // get lock on table, execute WRITE operation
+      pthread_mutex_lock(&lock);
       // variables for hash table ops
       currentInsertionLocation->strLen = valueLength;
       currentInsertionLocation->string = valueBuffer;
       ENTRY e, *ep;
       e.key = keyBuffer;
-      // get lock on table, execute WRITE operation
-      pthread_mutex_lock(&lock);
       // Find before inserting new value
       int retVal = hsearch_r(e, FIND, &ep, htab);
       if (retVal != 0) {  // value already exists in table
@@ -387,11 +391,11 @@ void* connection_handler(void* socket_desc) {
           sendBufferLength = 3;
         }
       }
-      // free lock after WRITE operations
-      pthread_mutex_unlock(&lock);
       printf("Sending message to client: %s\n", sendBuffer);
       // send message to client socket based on executed operation
       send(clientSocket, sendBuffer, sendBufferLength, 0);
+      // free lock after sending correc data
+      pthread_mutex_unlock(&lock);
     }  // SET operation ends
 
     // //////////////////////////////////////////BACK IN MAIN
@@ -405,7 +409,13 @@ void* connection_handler(void* socket_desc) {
 
   free(sendBuffer);
   free(recvBuffer);
-  return;
+  // Close data leak in table
+  struct BSstring* memFree = dataValues;
+  for (long i = 0; i < HASHTABLE_SIZE; ++i) {
+    if (memFree) free(memFree->string);
+    ++memFree;
+  }
+  return NULL;
 }
 
 /*
@@ -418,7 +428,7 @@ keys  --> DONE
 0.7 Edge case: Sending commands other than SET GET --> DONE
 0.8 Edge case: Sending extremely long strings for key (longer than 4 M) --> DONE
 0.9 Edge case: Sending extremely long string for key AND value (longer than 4 M)
---> DONE 
+--> DONE
 0.91 Edge case: Terminate connection when message length is 0 --> DONE
 1. Support talking to multiple clients --> multi-threading support for 1000
 threads --> DONE

@@ -8,6 +8,7 @@
 #include <assert.h>
 #include <errno.h>
 #include <search.h>
+#include <pthread.h>
 
 // TODO: Set 5555 as port number
 #define PORT_NUMBER 5555
@@ -128,7 +129,7 @@ void* connection_handler(void* socket_desc) {
   for (long i = 0; i < STRING_LENGTH_LIMIT; i++) {
     if (recvBuffer[i] > 127) {
       printf("Invalid characters in input, exiting.\n");
-      return;
+      return NULL;
     }
   }
 
@@ -137,7 +138,7 @@ void* connection_handler(void* socket_desc) {
   printf("Message length: %ld\n", msgLength);
   if (msgLength < 1) {
     printf("No more messages to read, exiting.\n");
-    return;
+    return NULL;
   }
 
   // parse the input string
@@ -159,7 +160,7 @@ void* connection_handler(void* socket_desc) {
     printf("Operation: %d\n", operation);
     if (operation == 0) {
       printf("Invalid operation %d from client, exiting.\n", operation);
-      return;
+      return NULL;
     }
 
     // ///////////////////////////////////////////////////////
@@ -185,8 +186,8 @@ void* connection_handler(void* socket_desc) {
         printf("Sending message to client: %s\n", sendBuffer);
         // send message to client socket based on executed operation
         send(clientSocket, sendBuffer, sendBufferLength, 0);
-        printf("Invalid keyLength %d from client, exiting.\n", keyLength);
-        return;
+        printf("Invalid keyLength %ld from client, exiting.\n", keyLength);
+        return NULL;
       }
 
       // create and initialize buffer of keyLength size
@@ -285,8 +286,8 @@ void* connection_handler(void* socket_desc) {
         printf("Sending message to client: %s\n", sendBuffer);
         // send message to client socket based on executed operation
         send(clientSocket, sendBuffer, sendBufferLength, 0);
-        printf("Invalid key length %d from client, exiting.\n", keyLength);
-        return;
+        printf("Invalid key length %ld from client, exiting.\n", keyLength);
+        return NULL;
       }
 
       // create and initialize buffer of read size
@@ -329,7 +330,7 @@ void* connection_handler(void* socket_desc) {
         // send message to client socket based on executed operation
         send(clientSocket, sendBuffer, sendBufferLength, 0);
         printf("Invalid value length %d from client, exiting.\n", valueLength);
-        return;
+        return NULL;
       }
 
       printf("Length of value: %ld\n", valueLength);
@@ -414,7 +415,7 @@ void* connection_handler(void* socket_desc) {
     if (memFree) free(memFree->string);
     ++memFree;
   }
-  return;
+  return NULL;
 }
 
 /*
