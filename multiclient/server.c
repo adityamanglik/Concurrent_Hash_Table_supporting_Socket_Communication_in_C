@@ -13,7 +13,7 @@
 #define PORT_NUMBER 5555
 // TODO: Find out how to read long messages without stack overflow
 #define STRING_LENGTH_LIMIT 32 * 1024 * 32
-#define KEY_TRUNCATION 9999
+#define KEY_TRUNCATION 99999
 #define HASHTABLE_SIZE 999
 
 struct BSstring {
