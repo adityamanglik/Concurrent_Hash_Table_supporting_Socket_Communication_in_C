@@ -59,7 +59,7 @@ int main(int argc, char const* argv[]) {
   if (socket_desc == -1) {
     printf("Could not create socket");
   }
-  puts("Socket created");
+  printf("Socket created");
 
   // Prepare the sockaddr_in structure
   server.sin_family = AF_INET;
@@ -69,36 +69,36 @@ int main(int argc, char const* argv[]) {
   // Bind
   if (bind(socket_desc, (struct sockaddr*)&server, sizeof(server)) < 0) {
     // print the error message
-    perror("bind failed. Error");
+    printf("bind failed. Error");
     return 1;
   }
-  puts("bind done");
+  printf("bind done");
 
   // Listen
   listen(socket_desc, 3);
 
   // Accept and incoming connection
-  puts("Waiting for incoming connections...");
+  printf("Waiting for incoming connections...");
   c = sizeof(struct sockaddr_in);
   pthread_t thread_id;
 
   while ((client_sock =
               accept(socket_desc, (struct sockaddr*)&client, (socklen_t*)&c))) {
-    puts("Connection accepted");
+    printf("Connection accepted");
 
     if (pthread_create(&thread_id, NULL, connection_handler,
                        (void*)&client_sock) < 0) {
-      perror("could not create thread");
+      printf("could not create thread");
       return 1;
     }
 
     // Now join the thread , so that we dont terminate before the thread
     // pthread_join( thread_id , NULL);
-    puts("Handler assigned");
+    printf("Handler assigned");
   }
 
   if (client_sock < 0) {
-    perror("accept failed");
+    printf("accept failed");
     return 1;
   }
   // Destroy the hash table free heap memory
@@ -117,12 +117,12 @@ void* connection_handler(void* socket_desc) {
   int clientSocket = *(int*)socket_desc;
 
   // string store data to send to client
-  char* sendBuffer = (char*)calloc(STRING_LENGTH_LIMIT, sizeof(char));
+  char* sendBuffer = (char*)calloc(1, STRING_LENGTH_LIMIT * sizeof(char));
   int sendBufferLength = 0;
-  char* recvBuffer = (char*)calloc(STRING_LENGTH_LIMIT, sizeof(char));
+  char* recvBuffer = (char*)calloc(1, STRING_LENGTH_LIMIT * sizeof(char));
 
   // receive message from client
-  long msgLength = read(clientSocket, recvBuffer, sizeof(recvBuffer));
+  long msgLength = read(clientSocket, recvBuffer, STRING_LENGTH_LIMIT);
 
   // print buffer which contains the client contents
   printf("From client: %s\n", recvBuffer);
@@ -182,7 +182,7 @@ void* connection_handler(void* socket_desc) {
       }
 
       // create and initialize buffer of keyLength size
-      char* keyBuffer = (char*)calloc((keyLength + 1), sizeof(char));
+      char* keyBuffer = (char*)calloc(1, (keyLength + 1) * sizeof(char));
       memset(keyBuffer, 'Z', keyLength);
       keyBuffer[keyLength] = '\0';
 
@@ -278,7 +278,7 @@ void* connection_handler(void* socket_desc) {
       }
 
       // create and initialize buffer of read size
-      char* keyBuffer = (char*)calloc((keyLength + 1), sizeof(char));
+      char* keyBuffer = (char*)calloc(1, (keyLength + 1) * sizeof(char));
       memset(keyBuffer, 'Z', keyLength);
       keyBuffer[keyLength] = '\0';
 
