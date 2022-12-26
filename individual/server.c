@@ -23,6 +23,8 @@ struct BSstring {
 
 // the thread function
 void* connection_handler(void*);
+// lock for hash table concurrency
+pthread_mutex_t lock;
 
 // GLOBAL VARIABLE TO HOLD HASH TABLE
 // create and initialize hash table
@@ -115,9 +117,9 @@ void* connection_handler(void* socket_desc) {
   int clientSocket = *(int*)socket_desc;
 
   // string store data to send to client
-  char sendBuffer[STRING_LENGTH_LIMIT] = {0};
+  char* sendBuffer = (char*)calloc(STRING_LENGTH_LIMIT, sizeof(char));
   int sendBufferLength = 0;
-  char recvBuffer[STRING_LENGTH_LIMIT] = {0};
+  char* recvBuffer = (char*)calloc(STRING_LENGTH_LIMIT, sizeof(char));
 
   // receive message from client
   long msgLength = read(clientSocket, recvBuffer, sizeof(recvBuffer));
@@ -125,7 +127,7 @@ void* connection_handler(void* socket_desc) {
   // print buffer which contains the client contents
   printf("From client: %s\n", recvBuffer);
   printf("Message length: %ld\n", msgLength);
-  if (msgLength == 0) {
+  if (msgLength < 1) {
     printf("No more messages to read, exiting.\n");
     return;
   }
@@ -162,31 +164,44 @@ void* connection_handler(void* socket_desc) {
       // increment location until length number
       location += 4;
       keyLength = atoi(recvBuffer + location);
-      ++location;  // increment beyond current $ to enable next dollar search
       printf("Length of key: %ld\n", keyLength);
 
-      // Truncate key for edge case
-      if (keyLength > KEY_TRUNCATION) keyLength = KEY_TRUNCATION;
+      // Edge case: If key length > 4 Mb terminate connection
+      if (keyLength < 1 || keyLength > STRING_LENGTH_LIMIT) {
+        memset(sendBuffer, 0, STRING_LENGTH_LIMIT);
+        sendBuffer[0] = 'E';
+        sendBuffer[1] = 'R';
+        sendBuffer[2] = 'R';
+        sendBuffer[3] = '\n';
+        sendBufferLength = 4;
+        printf("Sending message to client: %s\n", sendBuffer);
+        // send message to client socket based on executed operation
+        send(clientSocket, sendBuffer, sendBufferLength, 0);
+        printf("Invalid keyLength %d from client, exiting.\n", keyLength);
+        return;
+      }
 
-      // create and initialize buffer of read size
-      char* keyBuffer = (char*)malloc((keyLength + 1) * sizeof(char));
+      // create and initialize buffer of keyLength size
+      char* keyBuffer = (char*)calloc((keyLength + 1), sizeof(char));
       memset(keyBuffer, 'Z', keyLength);
       keyBuffer[keyLength] = '\0';
 
+      // increment beyond current $ to enable next dollar search
+      ++location;
       // update location to start reading key value
       while (recvBuffer[location - 1] != '$') ++location;
 
-      printf("Location: %ld\n", location);
+      printf("Location: %ld Value: %c\n", location, recvBuffer[location]);
 
       // copy key into buffer until keyLength
-      for (int j = 0; j < keyLength; ++j) {
+      for (long i = location; i < (location + keyLength); ++i) {
         // printf("recvbuffer: %c\n", recvBuffer[i]);
-        keyBuffer[j] = recvBuffer[j + location];
+        keyBuffer[i - location] = recvBuffer[i];
       }
       // increment location to match current value
       location += keyLength;
       printf("Key read from GET: %s\n", keyBuffer);
-      printf("Location: %ld\n", location);
+      printf("Location: %ld Value: %c\n", location, recvBuffer[location]);
 
       // execute READ operation on DB and print value or ERR
       // variables for hash table ops
@@ -197,7 +212,6 @@ void* connection_handler(void* socket_desc) {
       if (retVal == 0) {  // key does not exist
         printf("Value of errno: %d\n ", errno);
         printf("The error message is : %s\n", strerror(errno));
-        perror("Message from perror");
         memset(sendBuffer, 0, STRING_LENGTH_LIMIT);
         sendBuffer[0] = 'E';
         sendBuffer[1] = 'R';
@@ -222,7 +236,7 @@ void* connection_handler(void* socket_desc) {
         printf("Length of num string: %d\n", numStrLength);
         snprintf(numStr, numStrLength + 1, "%d", readValue->strLen);
         printf("Num string: %s\n", numStr);
-        for (int j = 0; j < numStrLength; ++j) sendBuffer[i++] = numStr[j];
+        for (long j = 0; j < numStrLength; ++j) sendBuffer[i++] = numStr[j];
         // append $ after length
         sendBuffer[i++] = '$';
         // append value read from table
@@ -247,6 +261,7 @@ void* connection_handler(void* socket_desc) {
       location += 4;
       keyLength = atoi(recvBuffer + location);
       printf("Length of key: %ld\n", keyLength);
+
       // Edge case: If key length > 4 Mb terminate connection
       if (keyLength < 1 || keyLength > STRING_LENGTH_LIMIT) {
         memset(sendBuffer, 0, STRING_LENGTH_LIMIT);
@@ -258,66 +273,84 @@ void* connection_handler(void* socket_desc) {
         printf("Sending message to client: %s\n", sendBuffer);
         // send message to client socket based on executed operation
         send(clientSocket, sendBuffer, sendBufferLength, 0);
-        printf("Invalid operation %d from client, exiting.\n", operation);
+        printf("Invalid key length %d from client, exiting.\n", keyLength);
         return;
       }
-      
-      // Truncate key for edge case
-      if (keyLength > KEY_TRUNCATION) keyLength = KEY_TRUNCATION;
 
       // create and initialize buffer of read size
-      char* keyBuffer = (char*)malloc((keyLength + 1) * sizeof(char));
+      char* keyBuffer = (char*)calloc((keyLength + 1), sizeof(char));
       memset(keyBuffer, 'Z', keyLength);
       keyBuffer[keyLength] = '\0';
 
-      ++location;  // increment beyond current $ to enable next dollar search
+      // increment beyond current $ to enable next dollar search
+      ++location;
       // update location to start reading key value
       while (recvBuffer[location - 1] != '$') ++location;
 
-      printf("Location: %ld\n", location);
+      printf("Location: %ld Value: %c\n", location, recvBuffer[location]);
 
       // copy key into buffer until keyLength
-      for (int i = location; i < (location + keyLength); ++i) {
+      for (long i = location; i < (location + keyLength); ++i) {
         // printf("recvbuffer: %c\n", recvBuffer[i]);
         keyBuffer[i - location] = recvBuffer[i];
       }
       // increment location to $ after key
       location += keyLength;
       printf("Key read from SET: %s\n", keyBuffer);
-      printf("Location: %ld\n", location);
+      printf("Location: %ld Value: %c\n", location, recvBuffer[location]);
 
       // read value
       ++location;  // increment beyond current $ to read value
       valueLength = atoi(recvBuffer + location);
-      ++location;  // increment beyond current $ to read string value
+
+      printf("Location: %ld Value: %c\n", location, recvBuffer[location]);
+
+      // Edge case: If value length > 4 Mb terminate connection
+      if (valueLength < 1 || valueLength > STRING_LENGTH_LIMIT) {
+        memset(sendBuffer, 0, STRING_LENGTH_LIMIT);
+        sendBuffer[0] = 'E';
+        sendBuffer[1] = 'R';
+        sendBuffer[2] = 'R';
+        sendBuffer[3] = '\n';
+        sendBufferLength = 4;
+        printf("Sending message to client: %s\n", sendBuffer);
+        // send message to client socket based on executed operation
+        send(clientSocket, sendBuffer, sendBufferLength, 0);
+        printf("Invalid value length %d from client, exiting.\n", valueLength);
+        return;
+      }
+
       printf("Length of value: %ld\n", valueLength);
 
       // create and initialize buffer of read size
-      char* valueBuffer = (char*)malloc((valueLength + 1) * sizeof(char));
+      char* valueBuffer = (char*)calloc((valueLength + 1), sizeof(char));
       memset(valueBuffer, 'Z', valueLength);
       valueBuffer[valueLength] = '\0';
 
+      // increment beyond current $ to read string value
+      ++location;
       // update location to start reading key value
       while (recvBuffer[location - 1] != '$') ++location;
 
-      printf("Location: %ld\n", location);
+      printf("Location: %ld Value: %c\n", location, recvBuffer[location]);
 
       // copy key into buffer until keyLength
-      for (int i = location; i < (location + valueLength); ++i) {
+      for (long i = location; i < (location + valueLength); ++i) {
         // printf("recvbuffer: %c\n", recvBuffer[i]);
         valueBuffer[i - location] = recvBuffer[i];
       }
       // increment location to $ after key
       location += valueLength;
       printf("Value read from SET: %s\n", valueBuffer);
-      printf("Location: %ld\n", location);
+      printf("Location: %ld Value: %c\n", location, recvBuffer[location]);
 
-      // get lock on table, execute WRITE operation
       // variables for hash table ops
       currentInsertionLocation->strLen = valueLength;
       currentInsertionLocation->string = valueBuffer;
       ENTRY e, *ep;
       e.key = keyBuffer;
+      // get lock on table, execute WRITE operation
+      pthread_mutex_lock(&lock);
       // Find before inserting new value
       int retVal = hsearch_r(e, FIND, &ep, htab);
       if (retVal != 0) {  // value already exists in table
@@ -346,6 +379,8 @@ void* connection_handler(void* socket_desc) {
           sendBufferLength = 3;
         }
       }
+      // free lock after WRITE operations
+      pthread_mutex_unlock(&lock);
       printf("Sending message to client: %s\n", sendBuffer);
       // send message to client socket based on executed operation
       send(clientSocket, sendBuffer, sendBufferLength, 0);
@@ -359,6 +394,9 @@ void* connection_handler(void* socket_desc) {
     printf("Location: %ld value: %c\n", location, recvBuffer[location]);
     continue;
   }
+
+  free(sendBuffer);
+  free(recvBuffer);
   return;
 }
 
