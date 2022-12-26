@@ -329,7 +329,7 @@ void* connection_handler(void* socket_desc) {
         printf("Sending message to client: %s\n", sendBuffer);
         // send message to client socket based on executed operation
         send(clientSocket, sendBuffer, sendBufferLength, 0);
-        printf("Invalid value length %d from client, exiting.\n", valueLength);
+        printf("Invalid value length %ld from client, exiting.\n", valueLength);
         return NULL;
       }
 
