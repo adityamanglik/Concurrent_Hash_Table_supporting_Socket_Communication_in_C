@@ -398,14 +398,15 @@ void* connection_handler(void* socket_desc) {
       pthread_mutex_unlock(&lock);
     }  // SET operation ends
 
-    // //////////////////////////////////////////BACK IN MAIN
-    // /////////////////////////
-
+    // //////////////////////////////////////////END OF COMMAND
+    // ///////////////////////////////////////////////////////
     // increment location to next operation
     if (recvBuffer[location] == '\n') ++location;
     printf("Location: %ld value: %c\n", location, recvBuffer[location]);
     continue;
   }
+    // //////////////////////////////////////////FREE MEMORY, EXIT
+    // ///////////////////////////////////////////////////////
 
   free(sendBuffer);
   free(recvBuffer);
