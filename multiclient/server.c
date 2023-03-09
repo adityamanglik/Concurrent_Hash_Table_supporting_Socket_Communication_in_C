@@ -9,11 +9,12 @@
 #include <errno.h>
 #include <search.h>
 #include <pthread.h>
+#include <netinet/tcp.h>
 
 // TODO: Set 5555 as port number
 #define PORT_NUMBER 5555
 // TODO: Find out how to read long messages without stack overflow
-#define STRING_LENGTH_LIMIT 32 * 1024 * 32
+#define STRING_LENGTH_LIMIT 32 * 1024 * 32 * 4
 #define KEY_TRUNCATION 99999
 #define HASHTABLE_SIZE 999
 
@@ -86,26 +87,39 @@ int main(int argc, char const* argv[]) {
   while ((client_sock =
               accept(socket_desc, (struct sockaddr*)&client, (socklen_t*)&c))) {
     printf("Connection accepted");
+    int flag;
+    int result = setsockopt(client_sock,            /* socket affected */
+                                 IPPROTO_TCP,     /* set option at TCP level */
+                                 TCP_NODELAY,     /* name of option */
+                                 (char *) &flag,  /* the cast is historical cruft */
+                                 sizeof(int));    /* length of option value */
 
     if (pthread_create(&thread_id, NULL, connection_handler,
                        (void*)&client_sock) < 0) {
       printf("could not create thread");
       return 1;
     }
-
-    // Now join the thread , so that we dont terminate before the thread
-    // pthread_join( thread_id , NULL);
     printf("Handler assigned");
+    // Now join the thread , so that we dont terminate before the thread
+    pthread_join(thread_id , NULL);
+    close(client_sock);
   }
 
   if (client_sock < 0) {
     printf("accept failed");
     return 1;
   }
+  // close socket
+  close(socket_desc);
   // Destroy the hash table free heap memory
   hdestroy_r(htab);
   free(htab);
-  // TODO: Iterate over dataValues and free all allocated pointers
+  // Close data leak in table
+  struct BSstring* memFree = dataValues;
+  for (long i = 0; i < HASHTABLE_SIZE; ++i) {
+    if (memFree) free(memFree->string);
+    ++memFree;
+  }
   return 0;
 }
 
@@ -410,12 +424,6 @@ void* connection_handler(void* socket_desc) {
 
   free(sendBuffer);
   free(recvBuffer);
-  // Close data leak in table
-  struct BSstring* memFree = dataValues;
-  for (long i = 0; i < HASHTABLE_SIZE; ++i) {
-    if (memFree) free(memFree->string);
-    ++memFree;
-  }
   return NULL;
 }
 
