@@ -1,3 +1,5 @@
+Concurrent hash table implemented in C as part of Computer Systems course at ETH Zurich. Supports multiple clients in parallel talking over a Telnet connection.
+
 Objective: Implemented an in-memory key-value store server which stores and retrieves data items referred to by the keys. The server listens on a TCP network socket, and responds to client requests to ’get’ and ’set’ values coming from programs (clients) across the network.
 
 Implementation: Implemented as a single source file in C and runs on Linux. Does not require any external libraries apart from libpthread (for thread support).
